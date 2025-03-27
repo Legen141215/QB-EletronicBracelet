@@ -2,13 +2,17 @@ local QBCore = exports['qb-core']:GetCoreObject()
 local hasBracelet = false
 local braceletObj = nil
 local warned = false
+local braceletBattery = 100
+local lastAttemptTime = 0 -- For cooldown system
 
+-- Handle player disconnection
 AddEventHandler('playerDropped', function(reason)
     if hasBracelet then
         TriggerServerEvent('qb-bracelet:server:removeOfflinePlayer', GetPlayerServerId(PlayerId()))
     end
 end)
 
+-- Apply or remove bracelet
 RegisterNetEvent('qb-bracelet:client:applyRemoveBracelet')
 AddEventHandler('qb-bracelet:client:applyRemoveBracelet', function(targetPlayer)
     local ped = PlayerPedId()
@@ -27,9 +31,17 @@ AddEventHandler('qb-bracelet:client:applyRemoveBracelet', function(targetPlayer)
     TriggerServerEvent('qb-bracelet:server:applyRemoveBracelet', targetId)
 end)
 
+-- Illegal removal attempt
 RegisterNetEvent('qb-bracelet:client:removeBraceletIllegally')
 AddEventHandler('qb-bracelet:client:removeBraceletIllegally', function()
     if hasBracelet then
+        local currentTime = GetGameTimer()
+        if currentTime - lastAttemptTime < 60000 then
+            QBCore.Functions.Notify('You are still on cooldown!', 'error')
+            return
+        end
+        lastAttemptTime = currentTime
+        
         local successChance = math.random(1, 100)
         QBCore.Functions.Progressbar("remove_bracelet", "Trying to remove the bracelet...", 5000, false, true, {
             disableMovement = true,
@@ -59,6 +71,7 @@ AddEventHandler('qb-bracelet:client:removeBraceletIllegally', function()
     end
 end)
 
+-- Load animation dictionary
 function loadAnimDict(dict)
     while (not HasAnimDictLoaded(dict)) do
         RequestAnimDict(dict)
@@ -66,6 +79,7 @@ function loadAnimDict(dict)
     end
 end
 
+-- Notify when bracelet status changes
 RegisterNetEvent('qb-bracelet:client:notifyBracelet')
 AddEventHandler('qb-bracelet:client:notifyBracelet', function(state)
     hasBracelet = state
@@ -80,6 +94,7 @@ AddEventHandler('qb-bracelet:client:notifyBracelet', function(state)
     end
 end)
 
+-- Attach bracelet to the ankle
 function attachBraceletToAnkle()
     local playerPed = PlayerPedId()
     local boneIndex = GetPedBoneIndex(playerPed, 0xF9BB)
@@ -105,6 +120,7 @@ function attachBraceletToAnkle()
     AttachEntityToEntity(braceletObj, playerPed, boneIndex, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, false, false, false, true, 2, true)
 end
 
+-- Remove bracelet
 function removeBracelet()
     if braceletObj then
         DeleteObject(braceletObj)
@@ -112,6 +128,7 @@ function removeBracelet()
     end
 end
 
+-- Create blip for police
 RegisterNetEvent('qb-bracelet:client:createBlip')
 AddEventHandler('qb-bracelet:client:createBlip', function(coords, name)
     if QBCore.Functions.GetPlayerData().job.name == 'police' then
@@ -128,6 +145,7 @@ AddEventHandler('qb-bracelet:client:createBlip', function(coords, name)
     end
 end)
 
+-- Monitor player position relative to the allowed area
 Citizen.CreateThread(function()
     local centerLosSantos = vector3(177.12, -823.93, 31.18)
     local maxDistance = 500.0
@@ -167,18 +185,21 @@ Citizen.CreateThread(function()
     end
 end)
 
+-- Bracelet status command (for players)
 RegisterCommand('braceletStatus', function()
     if hasBracelet then
         SetNuiFocus(true, true)
         SendNUIMessage({
             action = "showStatus",
-            status = "active"
+            status = "active",
+            battery = braceletBattery
         })
     else
         QBCore.Functions.Notify('You do not have an electronic bracelet.', 'error')
     end
 end)
 
+-- Close status UI
 RegisterNUICallback('closeStatus', function(data, cb)
     SetNuiFocus(false, false)
     cb('ok')
